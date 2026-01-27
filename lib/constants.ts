@@ -75,7 +75,7 @@ export const MARKET_OVERVIEW_WIDGET_CONFIG = {
                 { s: 'BSE:WIPRO', d: 'Wipro' },
                 { s: 'BSE:HCLTECH', d: 'HCL Technologies' },
                 { s: 'BSE:TECHM', d: 'Tech Mahindra' },
-                { s: 'BSE:LTI', d: 'LTIMindtree' },
+                { s: 'BSE:LTIM', d: 'LTIMindtree' },
             ],
         },
         {
@@ -124,16 +124,7 @@ export const HEATMAP_WIDGET_CONFIG = {
 // - Economic Times API
 // - Moneycontrol API
 // - NSE/BSE news feeds
-export const TOP_STORIES_WIDGET_CONFIG = {
-    displayMode: 'regular',
-    feedMode: 'market',
-    colorTheme: 'dark',
-    isTransparent: true,
-    locale: 'en',
-    market: 'stock',
-    width: '100%',
-    height: '600',
-};
+
 
 export const MARKET_DATA_WIDGET_CONFIG = {
     title: 'BSE Stocks',

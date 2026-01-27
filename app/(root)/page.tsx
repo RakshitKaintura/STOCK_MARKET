@@ -1,16 +1,22 @@
 import TradingViewWidget from "@/components/TradingViewWidget";
+import StockNews from "@/components/StockNews";
+import TickerTape from "@/components/TickerTape"; 
 import {
     HEATMAP_WIDGET_CONFIG,
     MARKET_DATA_WIDGET_CONFIG,
-    MARKET_OVERVIEW_WIDGET_CONFIG,
-    TOP_STORIES_WIDGET_CONFIG
+    MARKET_OVERVIEW_WIDGET_CONFIG
 } from "@/lib/constants";
 
 const Home = () => {
     const scriptUrl = `https://s3.tradingview.com/external-embedding/embed-widget-`;
 
     return (
-        <div className="flex min-h-screen home-wrapper">
+        <div className="flex flex-col min-h-screen home-wrapper">
+          
+          {/* 1. Ticker Tape (Full Width, touches Navbar) */}
+          <TickerTape />
+
+          {/* 2. Top Section: Market Overview & Heatmap */}
           <section className="grid w-full gap-8 home-section">
               <div className="md:col-span-1 xl:col-span-1">
                   <TradingViewWidget
@@ -21,6 +27,7 @@ const Home = () => {
                     height={600}
                   />
               </div>
+              
               <div className="md-col-span xl:col-span-2">
                   <TradingViewWidget
                       title="Stock Heatmap"
@@ -30,16 +37,16 @@ const Home = () => {
                   />
               </div>
           </section>
-            <section className="grid w-full gap-8 home-section">
+
+          {/* 3. Bottom Section: News & Data Table */}
+          <section className="grid w-full gap-8 home-section mt-8">
                 <div className="h-full md:col-span-1 xl:col-span-1">
-                    <TradingViewWidget
-                        scriptUrl={`${scriptUrl}timeline.js`}
-                        config={TOP_STORIES_WIDGET_CONFIG}
-                        height={600}
-                    />
+                    <StockNews />
                 </div>
+                
                 <div className="h-full md:col-span-1 xl:col-span-2">
                     <TradingViewWidget
+                        title="Live Market Data"
                         scriptUrl={`${scriptUrl}market-quotes.js`}
                         config={MARKET_DATA_WIDGET_CONFIG}
                         height={600}
