@@ -13,15 +13,15 @@ import {useRouter} from "next/navigation";
 import {Button} from "@/components/ui/button";
 import {LogOut} from "lucide-react";
 import NavItems from "@/components/NavItems";
+import {signOut} from "@/lib/actions/auth.actions";
 
-const UserDropdown = () => {
+const UserDropdown = ({ user }: {user: User}) => {
     const router = useRouter();
 
     const handleSignOut = async () => {
+        await signOut();
         router.push("/sign-in");
     }
-
-    const user = { name: 'Rocky', email: 'rakshitkaintura@gmail.com' };
 
     return (
         <DropdownMenu>
@@ -44,7 +44,7 @@ const UserDropdown = () => {
                 <DropdownMenuLabel>
                     <div className="flex relative items-center gap-3 py-2">
                         <Avatar className="h-10 w-10">
-                            <AvatarImage src="https://avatars.githubusercontent.com/u/153423955?s=280&v=4" />
+                            <AvatarImage src="https://avatars.githubusercontent.com/u/171288956?v=4&size=64" />
                             <AvatarFallback className="bg-yellow-500 text-yellow-900 text-sm font-bold">
                                 {user.name[0]}
                             </AvatarFallback>
