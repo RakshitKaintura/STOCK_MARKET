@@ -8,7 +8,7 @@ async function main() {
   const { connectToDatabase } = await import("../database/mongoose");
 
   try {
-    console.log("🔍 Checking URI:", process.env.MONGODB_URI?.substring(0, 20) + "...");
+   
     
     await connectToDatabase();
     

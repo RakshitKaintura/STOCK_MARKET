@@ -1,149 +1,178 @@
-'use server';
+"use server";
 
-import { getDateRange, validateArticle, formatArticle } from '@/lib/utils';
-import { POPULAR_STOCK_SYMBOLS } from '@/lib/constants';
-import { cache } from 'react';
+import _yahooFinance from "yahoo-finance2";
+import { auth } from "../better-auth/auth";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { cache } from "react";
+import { getWatchlistSymbolsByEmail } from "./watchlist.actions";
 
-const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1/';
-// Use server-side env variable primarily; fallback only if necessary
-const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY ?? process.env.NEXT_PUBLIC_FINNHUB_API_KEY ?? '';
+// ─── 0. Yahoo Finance Configuration ──────────────────────────────────────────
+const yahooFinanceModule = (_yahooFinance as any).default || _yahooFinance;
+const yahooFinance = typeof yahooFinanceModule === "function" 
+  ? new yahooFinanceModule() 
+  : yahooFinanceModule;
 
-async function fetchJSON<T>(url: string, revalidateSeconds?: number): Promise<T> {
-  const options: RequestInit & { next?: { revalidate?: number } } = revalidateSeconds
-    ? { cache: 'force-cache', next: { revalidate: revalidateSeconds } }
-    : { cache: 'no-store' };
-
-  const res = await fetch(url, options);
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Fetch failed ${res.status}: ${text}`);
-  }
-  return (await res.json()) as T;
+if (yahooFinance && yahooFinance.suppressNotices) {
+  yahooFinance.suppressNotices(['yahooSurvey', 'validation']);
 }
 
-export { fetchJSON };
-
-export async function getNews(symbols?: string[]): Promise<MarketNewsArticle[]> {
-  try {
-    const range = getDateRange(5);
-    if (!FINNHUB_API_KEY) throw new Error('FINNHUB API key is not configured');
-
-    const cleanSymbols = (symbols || [])
-      .map((s) => s?.trim().toUpperCase())
-      .filter((s): s is string => Boolean(s));
-
-    const maxArticles = 6;
-
-    if (cleanSymbols.length > 0) {
-      const perSymbolArticles: Record<string, RawNewsArticle[]> = {};
-
-      await Promise.all(
-        cleanSymbols.slice(0, 5).map(async (sym) => { // Limit symbols to prevent rate-limiting
-          try {
-            const url = `${FINNHUB_BASE_URL}/company-news?symbol=${encodeURIComponent(sym)}&from=${range.from}&to=${range.to}&token=${FINNHUB_API_KEY}`;
-            const articles = await fetchJSON<RawNewsArticle[]>(url, 300);
-            perSymbolArticles[sym] = (articles || []).filter(validateArticle);
-          } catch (e) {
-            console.error('Error fetching company news for', sym, e);
-            perSymbolArticles[sym] = [];
-          }
-        })
-      );
-
-      const collected: MarketNewsArticle[] = [];
-      // Use index instead of .shift() to avoid mutating source during the loop
-      const symbolIndices: Record<string, number> = {};
-      
-      for (let round = 0; round < maxArticles; round++) {
-        for (const sym of cleanSymbols) {
-          const list = perSymbolArticles[sym] || [];
-          const currentIndex = symbolIndices[sym] || 0;
-          
-          if (currentIndex < list.length) {
-            const article = list[currentIndex];
-            collected.push(formatArticle(article, true, sym, round));
-            symbolIndices[sym] = currentIndex + 1;
-          }
-          if (collected.length >= maxArticles) break;
-        }
-        if (collected.length >= maxArticles) break;
-      }
-
-      if (collected.length > 0) {
-        return collected.sort((a, b) => (b.datetime || 0) - (a.datetime || 0)).slice(0, maxArticles);
-      }
-    }
-
-    const generalUrl = `${FINNHUB_BASE_URL}/news?category=general&token=${FINNHUB_API_KEY}`;
-    const general = await fetchJSON<RawNewsArticle[]>(generalUrl, 300);
-
-    const seen = new Set<string>();
-    const unique: RawNewsArticle[] = [];
-    for (const art of general || []) {
-      if (!validateArticle(art)) continue;
-      const key = `${art.id}-${art.url}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      unique.push(art);
-      if (unique.length >= maxArticles) break;
-    }
-
-    return unique.map((a, idx) => formatArticle(a, false, undefined, idx));
-  } catch (err) {
-    console.error('getNews error:', err);
-    return []; // Return empty instead of crashing the UI
-  }
+// ─── Interfaces ─────────────────────────────────────────────────────────────
+export interface NewsItem {
+  headline: string;
+  summary: string;
+  url: string;
+  datetime: string;
+  source: string;
+  image: string | null;
 }
 
-export const searchStocks = cache(async (query?: string): Promise<StockWithWatchlistStatus[]> => {
+// ─── Formatters ─────────────────────────────────────────────────────────────
+const formatPrice = (number: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(number);
+const formatMarketCap = (number: number) => !number ? "—" : new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", notation: "compact", maximumFractionDigits: 2 }).format(number);
+
+// ─── 1. Search Stocks ───────────────────────────────────────────────────────
+export const searchStocks = cache(async (query?: string) => {
   try {
-    if (!FINNHUB_API_KEY) return [];
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session?.user) redirect("/sign-in");
 
-    const trimmed = typeof query === 'string' ? query.trim() : '';
-    let results: (FinnhubSearchResult & { __exchange?: string })[] = [];
+    const userWatchlistSymbols = await getWatchlistSymbolsByEmail(session.user.email);
+    const trimmed = typeof query === "string" ? query.trim() : "";
+    let results: any[] = [];
 
-    // 1. FIX INITIAL STATE: Use local constants instead of expensive API calls
     if (!trimmed) {
-      // We map the first 10 symbols from your constants file directly.
-      // This ensures the UI is NEVER empty when first clicking search.
-      return POPULAR_STOCK_SYMBOLS.slice(0, 10).map((sym) => ({
-        symbol: sym.toUpperCase(),
-        name: sym.toUpperCase(), // Fallback to symbol as name for immediate display
-        exchange: 'NSE',          // Defaulting to Indian exchange context
-        type: 'Common Stock',
-        isInWatchlist: false,
+      const POPULAR_INDIAN_STOCKS = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "TATAMOTORS.NS", "LT.NS"];
+      results = await Promise.all(POPULAR_INDIAN_STOCKS.map(async (sym) => {
+         try { return await yahooFinance.quote(sym); } catch (e) { return null; }
       }));
+    } else {
+      const searchResult: any = await yahooFinance.search(trimmed);
+      if (!searchResult.quotes) return [];
+      results = searchResult.quotes.filter((q: any) => q && q.symbol && (q.symbol.endsWith(".NS") || q.symbol.endsWith(".BO") || q.exchange === "NSI" || q.exchange === "BSE"));
     }
 
-    // 2. SEARCH STATE: Appending context for Indian Stocks
-    // Finnhub search is global, but appending suffixes can help narrow results.
-    const url = `${FINNHUB_BASE_URL}/search?q=${encodeURIComponent(trimmed)}&token=${FINNHUB_API_KEY}`;
-    const data = await fetchJSON<FinnhubSearchResponse>(url, 1800);
-    results = Array.isArray(data?.result) ? data.result : [];
+    return results.filter((r) => r && r.symbol).map((r) => ({
+      symbol: r.symbol,
+      name: r.shortname || r.longname || r.symbol,
+      exchange: r.exchange === "NSI" ? "NSE" : r.exchange,
+      type: "Stock",
+      isInWatchlist: userWatchlistSymbols.includes(r.symbol),
+    })).slice(0, 15);
+  } catch (error) { return []; }
+});
 
-    return results
-      .map((r) => {
-        const symbol = (r.symbol || '').toUpperCase();
-        
-        // Clean up the display name: remove the suffix for the UI but keep it for the ticker
-        const cleanName = r.description || symbol;
-        
-        return {
-          symbol: symbol,
-          name: cleanName,
-          // If symbol is RELIANCE.NS, exchange is NSE. Otherwise default to 'US'
-          exchange: symbol.includes('.') ? symbol.split('.')[1] : 'US',
-          type: r.type || 'Stock',
-          isInWatchlist: false,
-        };
-      })
-      // 3. FIX DUPLICATE KEY ERROR: Ensure unique symbols for React keys
-      .filter((item, index, self) => 
-        index === self.findIndex((t) => t.symbol === item.symbol)
-      )
-      .slice(0, 15);
-  } catch (err) {
-    console.error('Error in stock search:', err);
+// ─── 2. Get Stock Details ───────────────────────────────────────────────────
+export const getStocksDetails = cache(async (symbol: string) => {
+  const cleanSymbol = symbol.trim().toUpperCase();
+  try {
+    const quote: any = await yahooFinance.quote(cleanSymbol);
+    const summary: any = await yahooFinance.quoteSummary(cleanSymbol, { modules: ["summaryDetail", "defaultKeyStatistics"] });
+
+    if (!quote || !quote.regularMarketPrice) return null;
+
+    const companyName = quote.longname || quote.shortname || cleanSymbol;
+
+    return {
+      symbol: cleanSymbol,
+      company: companyName,
+      currentPrice: quote.regularMarketPrice,
+      changePercent: quote.regularMarketChangePercent || 0,
+      priceFormatted: formatPrice(quote.regularMarketPrice),
+      changeFormatted: `${(quote.regularMarketChangePercent || 0) > 0 ? "+" : ""}${(quote.regularMarketChangePercent || 0).toFixed(2)}%`,
+      peRatio: summary.summaryDetail?.trailingPE?.toFixed(2) || "—",
+      marketCapFormatted: formatMarketCap(quote.marketCap || 0),
+    };
+  } catch (error) { return null; }
+});
+
+// ─── 3. Get News (Google News RSS - High Accuracy Mode) ─────────────────────
+export const getNews = async (companyNames?: string[]): Promise<NewsItem[]> => {
+  try {
+    // 1. Build a "Financial Only" Query
+    let query = "Indian Stock Market";
+
+    if (companyNames && companyNames.length > 0) {
+      // Take top 5 companies (increased from 3)
+      const terms = companyNames.slice(0, 5).map(name => {
+        // Clean the name slightly but keep it specific
+        const clean = name
+          .replace("Limited", "")
+          .replace("Ltd", "")
+          .replace("Corporation", "")
+          .trim();
+        return `"${clean}"`; // Quotes enforce exact match
+      });
+
+      // KEY CHANGE: We force the search to include financial context words.
+      // Format: ("Reliance" OR "TCS") AND (stock OR share OR market OR price)
+      const companiesGroup = `(${terms.join(" OR ")})`;
+      const contextGroup = `(stock OR share OR market OR price OR sensex OR nifty)`;
+      
+      query = `${companiesGroup} AND ${contextGroup}`;
+    }
+
+    console.log(`Fetching Targeted News for: ${query}`);
+
+    // 2. Fetch RSS Feed (India Edition)
+    // 'when:7d' ensures we don't get ancient news
+    const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query + " when:7d")}&hl=en-IN&gl=IN&ceid=IN:en`;
+    
+    const response = await fetch(rssUrl, { next: { revalidate: 1800 } }); // Cache for 30 mins
+    const xmlText = await response.text();
+
+    // 3. Parse XML
+    const items: NewsItem[] = [];
+    const itemRegex = /<item>[\s\S]*?<\/item>/g;
+    const titleRegex = /<title>(.*?)<\/title>/;
+    const linkRegex = /<link>(.*?)<\/link>/;
+    const dateRegex = /<pubDate>(.*?)<\/pubDate>/;
+    const sourceRegex = /<source url=".*?">(.*?)<\/source>/;
+    const descRegex = /<description>([\s\S]*?)<\/description>/;
+
+    let match;
+    while ((match = itemRegex.exec(xmlText)) !== null) {
+      if (items.length >= 10) break; // Limit to 10 items
+
+      const itemBlock = match[0];
+      const titleMatch = titleRegex.exec(itemBlock);
+      const linkMatch = linkRegex.exec(itemBlock);
+      const dateMatch = dateRegex.exec(itemBlock);
+      const sourceMatch = sourceRegex.exec(itemBlock);
+      const descMatch = descRegex.exec(itemBlock);
+
+      // Try to extract an image from description HTML (Google sometimes puts it there)
+      let imageUrl: string | null = null;
+      if (descMatch) {
+        const imgMatch = /src="(.*?)"/.exec(descMatch[1]);
+        if (imgMatch) imageUrl = imgMatch[1];
+      }
+
+      if (titleMatch && linkMatch) {
+        items.push({
+          headline: titleMatch[1]
+            .replace(" - Google News", "")
+            .replace(/&#39;/g, "'")
+            .replace(/&quot;/g, '"'), 
+          summary: "Click to read full coverage.", // Google RSS summaries are often messy HTML
+          url: linkMatch[1],
+          datetime: dateMatch ? new Date(dateMatch[1]).toISOString() : new Date().toISOString(),
+          source: sourceMatch ? sourceMatch[1] : "Google News",
+          image: imageUrl 
+        });
+      }
+    }
+
+    // 4. Fallback if empty
+    if (items.length === 0) {
+      console.log("No specific news found. Fetching fallback...");
+      return getNews([]); // Recursive call for general market news
+    }
+
+    return items;
+
+  } catch (error) {
+    console.error("News Fetch Error:", error);
     return [];
   }
-});
+};

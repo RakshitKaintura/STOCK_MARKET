@@ -1,7 +1,8 @@
 export const NAV_ITEMS = [
-    { href: '/', label: 'Dashboard' },
-    { href: '/search', label: 'Search' },
-    { href: '/watchlist', label: 'Watchlist' },
+  { href: "/", label: "Dashboard" },
+  { href: "/search", label: "Search" },
+  { href: "/watchlist", label: "Watchlist" },
+  { href: "/screeners", label: "Screeners" }, // Added
 ];
 
 // Sign-up form select options
@@ -278,15 +279,24 @@ export const POPULAR_STOCK_SYMBOLS = [
 ];
 
 export const SYMBOL_INFO_WIDGET_CONFIG = (symbol: string) => ({
-    symbol: symbol.toUpperCase(),
+   symbol: formatTvSymbol(symbol),
     colorTheme: 'dark',
     isTransparent: true,
     locale: 'en',
     width: '100%',
     height: 170,
 });
+// Helper: Force Indian stocks to open as BSE in TradingView
+const formatTvSymbol = (symbol: string) => {
+  if (symbol.includes(".NS") || symbol.includes(".BO")) {
+    // Remove .NS/.BO and prepend BSE:
+    return `BSE:${symbol.replace(".NS", "").replace(".BO", "")}`;
+  }
+  return symbol; // Return as-is for US stocks
+};
 
 export const CANDLE_CHART_WIDGET_CONFIG = (symbol: string) => ({
+  symbol: formatTvSymbol(symbol),
     allow_symbol_change: false,
     calendar: false,
     details: true,
@@ -299,9 +309,9 @@ export const CANDLE_CHART_WIDGET_CONFIG = (symbol: string) => ({
     locale: 'en',
     save_image: false,
     style: 1,
-    symbol: symbol.toUpperCase(),
+   
     theme: 'dark',
-    timezone: 'Etc/UTC',
+    timezone: "Asia/Kolkata",
     backgroundColor: '#141414',
     gridColor: '#141414',
     watchlist: [],
@@ -325,7 +335,7 @@ export const BASELINE_WIDGET_CONFIG = (symbol: string) => ({
     locale: 'en',
     save_image: false,
     style: 10,
-    symbol: symbol.toUpperCase(),
+    symbol: formatTvSymbol(symbol),
     theme: 'dark',
     timezone: 'Etc/UTC',
     backgroundColor: '#141414',
@@ -339,7 +349,7 @@ export const BASELINE_WIDGET_CONFIG = (symbol: string) => ({
 });
 
 export const TECHNICAL_ANALYSIS_WIDGET_CONFIG = (symbol: string) => ({
-    symbol: symbol.toUpperCase(),
+  symbol: formatTvSymbol(symbol),
     colorTheme: 'dark',
     isTransparent: 'true',
     locale: 'en',
@@ -350,7 +360,7 @@ export const TECHNICAL_ANALYSIS_WIDGET_CONFIG = (symbol: string) => ({
 });
 
 export const COMPANY_PROFILE_WIDGET_CONFIG = (symbol: string) => ({
-    symbol: symbol.toUpperCase(),
+   symbol: formatTvSymbol(symbol),
     colorTheme: 'dark',
     isTransparent: 'true',
     locale: 'en',
@@ -359,7 +369,7 @@ export const COMPANY_PROFILE_WIDGET_CONFIG = (symbol: string) => ({
 });
 
 export const COMPANY_FINANCIALS_WIDGET_CONFIG = (symbol: string) => ({
-    symbol: symbol.toUpperCase(),
+   symbol: formatTvSymbol(symbol),
     colorTheme: 'dark',
     isTransparent: 'true',
     locale: 'en',
@@ -375,12 +385,12 @@ export const NO_MARKET_NEWS =
 
 
 export const WATCHLIST_TABLE_HEADER = [
-    'Company',
-    'Symbol',
-    'Price',
-    'Change',
-    'Market Cap',
-    'P/E Ratio',
-    'Alert',
-    'Action',
+  "Company",
+  "Symbol",
+  "Price (₹)",
+  "Change",
+  "Market Cap",
+  "P/E Ratio",
+  "Alerts",
+  "", // Empty for the trash icon column
 ];
