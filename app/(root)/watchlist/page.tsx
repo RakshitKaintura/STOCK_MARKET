@@ -6,6 +6,9 @@ import { WatchlistTable } from "@/components/WatchlistTable";
 import Link from "next/link";
 import { ExternalLink, Newspaper, Clock } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 // ─── Helper: Time Ago Formatter ─────────────────────────────────────────────
 function formatTimeAgo(dateString: string) {
   const date = new Date(dateString);

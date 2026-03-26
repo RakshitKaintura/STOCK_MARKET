@@ -87,7 +87,7 @@ export const getStocksDetails = cache(async (symbol: string) => {
 });
 
 // ─── 3. Get News (Google News RSS - High Accuracy Mode) ─────────────────────
-export const getNews = async (companyNames?: string[]): Promise<NewsItem[]> => {
+export const getNews = async (companyNames?: string[], isFallbackAttempt = false): Promise<NewsItem[]> => {
   try {
     // 1. Build a "Financial Only" Query
     let query = "Indian Stock Market";
@@ -119,6 +119,11 @@ export const getNews = async (companyNames?: string[]): Promise<NewsItem[]> => {
     const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query + " when:7d")}&hl=en-IN&gl=IN&ceid=IN:en`;
     
     const response = await fetch(rssUrl, { next: { revalidate: 1800 } }); // Cache for 30 mins
+    if (!response.ok) {
+      console.error(`Google News RSS request failed: ${response.status}`);
+      return [];
+    }
+
     const xmlText = await response.text();
 
     // 3. Parse XML
@@ -165,8 +170,12 @@ export const getNews = async (companyNames?: string[]): Promise<NewsItem[]> => {
 
     // 4. Fallback if empty
     if (items.length === 0) {
+      if (isFallbackAttempt || !companyNames || companyNames.length === 0) {
+        return [];
+      }
+
       console.log("No specific news found. Fetching fallback...");
-      return getNews([]); // Recursive call for general market news
+      return getNews([], true);
     }
 
     return items;
