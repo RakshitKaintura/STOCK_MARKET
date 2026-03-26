@@ -41,24 +41,78 @@ export const searchStocks = cache(async (query?: string) => {
     const trimmed = typeof query === "string" ? query.trim() : "";
     let results: any[] = [];
 
+    const isIndianListing = (item: any) => {
+      const symbol = String(item?.symbol || "").toUpperCase();
+      const exchange = String(item?.exchange || "").toUpperCase();
+
+      return (
+        symbol.endsWith(".NS") ||
+        symbol.endsWith(".BO") ||
+        exchange === "NSI" ||
+        exchange === "NSE" ||
+        exchange === "BSE" ||
+        exchange === "BOM"
+      );
+    };
+
     if (!trimmed) {
       const POPULAR_INDIAN_STOCKS = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "TATAMOTORS.NS", "LT.NS"];
       results = await Promise.all(POPULAR_INDIAN_STOCKS.map(async (sym) => {
          try { return await yahooFinance.quote(sym); } catch (e) { return null; }
       }));
     } else {
-      const searchResult: any = await yahooFinance.search(trimmed);
-      if (!searchResult.quotes) return [];
-      results = searchResult.quotes.filter((q: any) => q && q.symbol && (q.symbol.endsWith(".NS") || q.symbol.endsWith(".BO") || q.exchange === "NSI" || q.exchange === "BSE"));
+      let searchQuotes: any[] = [];
+
+      try {
+        const searchResult: any = await yahooFinance.search(trimmed);
+        searchQuotes = Array.isArray(searchResult?.quotes) ? searchResult.quotes : [];
+      } catch (error) {
+        console.error("Search API failed, using direct symbol fallback:", error);
+      }
+
+      if (searchQuotes.length > 0) {
+        results = searchQuotes.filter((q: any) => q && q.symbol && isIndianListing(q));
+      }
+
+      if (results.length === 0) {
+        const compact = trimmed.toUpperCase().replace(/\s+/g, "");
+        const rawCandidates = compact.includes(".")
+          ? [compact]
+          : [compact, `${compact}.NS`, `${compact}.BO`];
+
+        const candidates = [...new Set(rawCandidates)];
+        const fallbackQuotes = await Promise.all(
+          candidates.map(async (sym) => {
+            try {
+              return await yahooFinance.quote(sym);
+            } catch {
+              return null;
+            }
+          })
+        );
+
+        results = fallbackQuotes.filter((q) => q && q.symbol && isIndianListing(q));
+      }
     }
 
-    return results.filter((r) => r && r.symbol).map((r) => ({
-      symbol: r.symbol,
-      name: r.shortname || r.longname || r.symbol,
-      exchange: r.exchange === "NSI" ? "NSE" : r.exchange,
-      type: "Stock",
-      isInWatchlist: userWatchlistSymbols.includes(r.symbol),
-    })).slice(0, 15);
+    const seen = new Set<string>();
+
+    return results
+      .filter((r) => r && r.symbol)
+      .filter((r) => {
+        const key = String(r.symbol).toUpperCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((r) => ({
+        symbol: r.symbol,
+        name: r.shortname || r.longname || r.displayName || r.symbol,
+        exchange: r.exchange === "NSI" ? "NSE" : r.exchange,
+        type: r.quoteType || "Stock",
+        isInWatchlist: userWatchlistSymbols.includes(r.symbol),
+      }))
+      .slice(0, 15);
   } catch (error) { return []; }
 });
 
