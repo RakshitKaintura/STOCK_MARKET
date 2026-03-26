@@ -18,21 +18,20 @@ const StockNews = () => {
   useEffect(() => {
     const fetchNews = async () => {
       try {
-        const apiKey = process.env.NEXT_PUBLIC_GNEWS_API_KEY;
-        if (!apiKey) {
-            setError("Missing API Key");
-            setLoading(false);
-            return;
+        const res = await fetch('/api/news', { cache: 'no-store' });
+        if (!res.ok) {
+          throw new Error('Failed to fetch news');
         }
 
-        const query = 'Indian Stock Market OR Sensex OR Nifty OR Reliance Industries';
-        const res = await fetch(`https://gnews.io/api/v4/search?q=${query}&lang=en&country=in&max=8&apikey=${apiKey}`);
         const data = await res.json();
 
-        if (data.articles) setNews(data.articles);
-        else setError("Failed to load news");
-      } catch (err) {
-        setError("Error fetching data");
+        if (Array.isArray(data.articles) && data.articles.length > 0) {
+          setNews(data.articles);
+        } else {
+          setError("No news available right now");
+        }
+      } catch {
+        setError("Error fetching news");
       } finally {
         setLoading(false);
       }
