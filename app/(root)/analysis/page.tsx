@@ -11,6 +11,11 @@ type AnalysisResponse = {
   error?: string;
 };
 
+type AnalysisSection = {
+  title: string;
+  lines: string[];
+};
+
 const defaultResult: AnalysisResponse | null = null;
 
 const parseSnapshot = (snapshot: string) => {
@@ -34,6 +39,48 @@ const formatAnalysisBlocks = (analysis: string) => {
     .filter((line) => line.length > 0);
 };
 
+const parseAnalysisSections = (analysis: string) => {
+  const rows = formatAnalysisBlocks(analysis);
+  const sections: AnalysisSection[] = [];
+  const metaLines: string[] = [];
+
+  for (const row of rows) {
+    const headingMatch = row.match(/^\d+[\).]\s*(.+)$/) || row.match(/^#+\s*(.+)$/);
+    if (headingMatch) {
+      sections.push({ title: headingMatch[1].trim(), lines: [] });
+      continue;
+    }
+
+    const isMetaLine = /^(caution:|note:)/i.test(row);
+    if (isMetaLine) {
+      metaLines.push(row);
+      continue;
+    }
+
+    if (sections.length === 0) {
+      sections.push({ title: "Summary", lines: [row] });
+      continue;
+    }
+
+    sections[sections.length - 1].lines.push(row);
+  }
+
+  return { sections, metaLines };
+};
+
+const getSectionPriority = (title: string) => {
+  const normalized = title.toLowerCase();
+  if (normalized.includes("risk") || normalized.includes("action")) {
+    return { label: "High Priority", className: "text-[#FF8A4C] bg-[#FF8A4C]/10 border-[#FF8A4C]/20" };
+  }
+  if (normalized.includes("executive") || normalized.includes("confidence")) {
+    return { label: "Core", className: "text-[#0FEDBE] bg-[#0FEDBE]/10 border-[#0FEDBE]/20" };
+  }
+  return { label: "Context", className: "text-[#FDD458] bg-[#FDD458]/10 border-[#FDD458]/20" };
+};
+
+const toBulletText = (line: string) => line.replace(/^[-*•]\s*/, "").trim();
+
 const getValueColorClass = (value: string) => {
   if (/(^|\s)\+\d|\+\d|\+\s*\d/.test(value) || /\bup\b/i.test(value)) {
     return "text-[#0FEDBE]";
@@ -46,6 +93,20 @@ const getValueColorClass = (value: string) => {
   return "text-white";
 };
 
+const parseNumericValue = (value?: string) => {
+  if (!value) return null;
+  const cleaned = value.replace(/[^0-9+-.]/g, "");
+  if (!cleaned || cleaned === "+" || cleaned === "-" || cleaned === ".") return null;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const buildMetricMap = (rows: Array<{ label: string; value: string }>) => {
+  return Object.fromEntries(rows.map((row) => [row.label.toLowerCase(), row.value]));
+};
+
+const clampScore = (score: number) => Math.max(0, Math.min(100, Math.round(score)));
+
 export default function AnalysisPage() {
   const [symbol, setSymbol] = useState("ASIANPAINT");
   const [timeframe, setTimeframe] = useState("medium");
@@ -56,6 +117,157 @@ export default function AnalysisPage() {
 
   const snapshotRows = result?.stockData ? parseSnapshot(result.stockData) : [];
   const analysisRows = result?.analysis ? formatAnalysisBlocks(result.analysis) : [];
+  const { sections: analysisSections, metaLines: analysisMetaLines } = result?.analysis
+    ? parseAnalysisSections(result.analysis)
+    : { sections: [], metaLines: [] };
+  const snapshotSplitIndex = Math.ceil(snapshotRows.length / 2);
+  const snapshotRowsLeft = snapshotRows.slice(0, snapshotSplitIndex);
+  const snapshotRowsRight = snapshotRows.slice(snapshotSplitIndex);
+  const metricMap = buildMetricMap(snapshotRows);
+
+  const currentPrice = parseNumericValue(metricMap["current price"]);
+  const avg50 = parseNumericValue(metricMap["50d avg"]);
+  const avg200 = parseNumericValue(metricMap["200d avg"]);
+  const peRatio = parseNumericValue(metricMap["p/e ratio"]);
+  const rsi = parseNumericValue(metricMap["rsi (14)"]);
+  const revenueGrowth = parseNumericValue(metricMap["revenue growth"]);
+  const earningsGrowth = parseNumericValue(metricMap["earnings growth"]);
+  const debtToEquity = parseNumericValue(metricMap["debt to equity"]);
+  const change = parseNumericValue(metricMap["change"]);
+
+  let valuationScore = 50;
+  if (peRatio !== null) {
+    if (peRatio <= 20) valuationScore += 28;
+    else if (peRatio <= 30) valuationScore += 16;
+    else if (peRatio <= 40) valuationScore += 6;
+    else if (peRatio <= 50) valuationScore -= 10;
+    else if (peRatio <= 70) valuationScore -= 24;
+    else valuationScore -= 34;
+
+    // Forgive premium valuation when earnings momentum is decisively strong.
+    if (peRatio > 45 && earningsGrowth !== null) {
+      if (earningsGrowth >= 25) valuationScore += 14;
+      else if (earningsGrowth >= 15) valuationScore += 8;
+      else if (earningsGrowth >= 8) valuationScore += 4;
+    }
+  }
+
+  let momentumScore = 50;
+  if (rsi !== null) {
+    if (rsi >= 40 && rsi <= 60) momentumScore += 20;
+    else if (rsi > 30 && rsi < 40) momentumScore += 12;
+    else if (rsi > 70) momentumScore -= 22;
+    else if (rsi > 60) momentumScore -= 10;
+  }
+  if (change !== null) {
+    if (change > 2.5) momentumScore -= 8;
+    if (change < -2.5) momentumScore += 6;
+  }
+
+  let trendScore = 50;
+  if (currentPrice !== null && avg50 !== null) {
+    trendScore += currentPrice >= avg50 ? 12 : -6;
+  }
+  if (currentPrice !== null && avg200 !== null) {
+    trendScore += currentPrice >= avg200 ? 10 : -8;
+  }
+
+  let fundamentalsScore = 50;
+  if (revenueGrowth !== null) {
+    if (revenueGrowth >= 12) fundamentalsScore += 14;
+    else if (revenueGrowth > 0) fundamentalsScore += 8;
+    else if (revenueGrowth <= -5) fundamentalsScore -= 14;
+    else fundamentalsScore -= 8;
+  }
+
+  if (earningsGrowth !== null) {
+    if (earningsGrowth >= 25) fundamentalsScore += 24;
+    else if (earningsGrowth >= 15) fundamentalsScore += 18;
+    else if (earningsGrowth >= 8) fundamentalsScore += 12;
+    else if (earningsGrowth > 0) fundamentalsScore += 6;
+    else if (earningsGrowth <= -10) fundamentalsScore -= 20;
+    else fundamentalsScore -= 12;
+  }
+
+  if (debtToEquity !== null) {
+    if (debtToEquity <= 1) fundamentalsScore += 12;
+    else if (debtToEquity <= 2) fundamentalsScore += 4;
+    else if (debtToEquity > 3) fundamentalsScore -= 12;
+  }
+
+  valuationScore = clampScore(valuationScore);
+  momentumScore = clampScore(momentumScore);
+  trendScore = clampScore(trendScore);
+  fundamentalsScore = clampScore(fundamentalsScore);
+
+  const overallConfidence = clampScore(
+    valuationScore * 0.25 + momentumScore * 0.25 + trendScore * 0.2 + fundamentalsScore * 0.3
+  );
+
+  let buyThreshold = 70;
+  let accumulateThreshold = 55;
+
+  // Stricter entry thresholds for elevated valuation regimes.
+  if (peRatio !== null) {
+    if (peRatio > 50) {
+      buyThreshold += 5;
+      accumulateThreshold += 3;
+    }
+    if (peRatio > 65) {
+      buyThreshold += 5;
+      accumulateThreshold += 4;
+    }
+  }
+
+  // More forgiving timing when earnings momentum is strong.
+  if (earningsGrowth !== null) {
+    if (earningsGrowth >= 15) {
+      buyThreshold -= 4;
+      accumulateThreshold -= 3;
+    }
+    if (earningsGrowth >= 25) {
+      buyThreshold -= 3;
+      accumulateThreshold -= 2;
+    }
+  }
+
+  buyThreshold = Math.max(62, buyThreshold);
+  accumulateThreshold = Math.max(50, Math.min(buyThreshold - 8, accumulateThreshold));
+
+  const decision =
+    overallConfidence >= buyThreshold
+      ? "Buy Now (Staggered Entries)"
+      : overallConfidence >= accumulateThreshold
+      ? "Accumulate Slowly"
+      : "Wait For Better Price";
+
+  const decisionClass =
+    overallConfidence >= buyThreshold
+      ? "text-[#0FEDBE]"
+      : overallConfidence >= accumulateThreshold
+      ? "text-[#FDD458]"
+      : "text-[#FF8A4C]";
+
+  const thresholdAdjustments: string[] = [];
+  if (peRatio !== null && peRatio > 50) {
+    thresholdAdjustments.push("Higher valuation raised entry thresholds");
+  }
+  if (peRatio !== null && peRatio > 65) {
+    thresholdAdjustments.push("Very high P/E requires extra caution");
+  }
+  if (earningsGrowth !== null && earningsGrowth >= 15) {
+    thresholdAdjustments.push("Strong earnings momentum lowered timing thresholds");
+  }
+  if (earningsGrowth !== null && earningsGrowth >= 25) {
+    thresholdAdjustments.push("Very strong earnings growth added extra flexibility");
+  }
+
+  const scorePillClass = (score: number) =>
+    score >= 70
+      ? "text-[#0FEDBE] bg-[#0FEDBE]/10 border-[#0FEDBE]/20"
+      : score >= 55
+      ? "text-[#FDD458] bg-[#FDD458]/10 border-[#FDD458]/20"
+      : "text-[#FF8A4C] bg-[#FF8A4C]/10 border-[#FF8A4C]/20";
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -175,40 +387,62 @@ export default function AnalysisPage() {
 
             <div className="rounded-xl border border-[#1e2128] bg-[#161922] overflow-hidden">
               <div className="px-5 py-3 border-b border-[#232730] flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-white">Snapshot Data</h3>
-                <span className="text-xs text-[#7a7f8e]">
-                  {result?.symbol || `${symbol.toUpperCase()} (pending)`}
-                </span>
+                <h3 className="text-sm font-semibold text-white">Confidence Metrics</h3>
+                <span className="text-xs text-[#7a7f8e]">Model-Assisted Timing</span>
               </div>
               <div className="p-5">
                 {snapshotRows.length > 0 ? (
-                  <div className="watchlist-table">
-                    <table className="w-full text-sm">
-                      <colgroup>
-                        <col className="w-[38%]" />
-                        <col className="w-[62%]" />
-                      </colgroup>
-                      <thead>
-                        <tr className="table-header-row">
-                          <th className="table-header text-left px-4 py-3">Metric</th>
-                          <th className="table-header text-left px-4 py-3">Value</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {snapshotRows.map((row) => (
-                          <tr key={row.label} className="table-row">
-                            <td className="table-cell px-4 py-3 text-[#c7cad2]">{row.label}</td>
-                            <td className={`table-cell px-4 py-3 ${getValueColorClass(row.value)}`}>
-                              {row.value}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="space-y-4">
+                    <div className="rounded-lg border border-[#2a2e39] bg-[#11151e] p-4">
+                      <p className="text-xs uppercase tracking-wide text-[#7a7f8e]">Overall Confidence Score</p>
+                      <p className="mt-1 text-3xl font-bold text-white">{overallConfidence}/100</p>
+                      <p className={`mt-2 text-sm font-semibold ${decisionClass}`}>{decision}</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-md border border-[#2a2e39] bg-[#0f1117] px-3 py-2">
+                          <p className="text-[11px] uppercase tracking-wide text-[#7a7f8e]">Buy Threshold</p>
+                          <p className="text-sm font-semibold text-white">{buyThreshold}+</p>
+                        </div>
+                        <div className="rounded-md border border-[#2a2e39] bg-[#0f1117] px-3 py-2">
+                          <p className="text-[11px] uppercase tracking-wide text-[#7a7f8e]">Accumulate Threshold</p>
+                          <p className="text-sm font-semibold text-white">{accumulateThreshold}+ </p>
+                        </div>
+                      </div>
+                      <p className="mt-1 text-xs text-[#9ca3b2]">
+                        Signal blends valuation, momentum, trend, and financial health. Use staggered entries and risk controls.
+                      </p>
+                      {thresholdAdjustments.length > 0 ? (
+                        <div className="mt-2 space-y-1">
+                          {thresholdAdjustments.map((item) => (
+                            <p key={item} className="text-[11px] text-[#9ca3b2]">
+                              • {item}
+                            </p>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className={`rounded-lg border px-3 py-2 ${scorePillClass(valuationScore)}`}>
+                        <p className="text-[11px] uppercase tracking-wide">Valuation</p>
+                        <p className="text-lg font-semibold">{valuationScore}</p>
+                      </div>
+                      <div className={`rounded-lg border px-3 py-2 ${scorePillClass(momentumScore)}`}>
+                        <p className="text-[11px] uppercase tracking-wide">Momentum</p>
+                        <p className="text-lg font-semibold">{momentumScore}</p>
+                      </div>
+                      <div className={`rounded-lg border px-3 py-2 ${scorePillClass(trendScore)}`}>
+                        <p className="text-[11px] uppercase tracking-wide">Trend</p>
+                        <p className="text-lg font-semibold">{trendScore}</p>
+                      </div>
+                      <div className={`rounded-lg border px-3 py-2 ${scorePillClass(fundamentalsScore)}`}>
+                        <p className="text-[11px] uppercase tracking-wide">Financial Health</p>
+                        <p className="text-lg font-semibold">{fundamentalsScore}</p>
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div className="text-sm leading-relaxed text-[#7a7f8e] min-h-30 flex items-center">
-                    Run analysis to load the latest stock snapshot.
+                    Run analysis to generate confidence metrics and timing signal.
                   </div>
                 )}
               </div>
@@ -216,26 +450,138 @@ export default function AnalysisPage() {
 
             <div className="rounded-xl border border-[#1e2128] bg-[#161922] overflow-hidden">
               <div className="px-5 py-3 border-b border-[#232730]">
-                <h3 className="text-sm font-semibold text-white">LangGraph Analysis</h3>
+                <h3 className="text-sm font-semibold text-white">Main Analysis</h3>
               </div>
               <div className="p-5">
                 {analysisRows.length > 0 ? (
-                  <div className="space-y-2 min-h-60">
-                    {analysisRows.map((line, index) => {
-                      const isHeading = /^\d\)|^\d\.|^#+/.test(line);
-                      return (
-                        <p
-                          key={`${line}-${index}`}
-                          className={isHeading ? "text-[#d4a017] font-semibold text-sm" : "text-[#d6d8df] text-sm leading-relaxed"}
-                        >
-                          {line}
-                        </p>
-                      );
-                    })}
+                  <div className="space-y-4 min-h-60">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {analysisSections.map((section) => {
+                        const priority = getSectionPriority(section.title);
+
+                        return (
+                          <article
+                            key={section.title}
+                            className="rounded-lg border border-[#2a2e39] bg-[#11151e] p-4"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <h4 className="text-sm font-semibold text-[#d4a017]">{section.title}</h4>
+                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${priority.className}`}>
+                                {priority.label}
+                              </span>
+                            </div>
+
+                            <div className="mt-3 space-y-2">
+                              {section.lines.length > 0 ? (
+                                section.lines.map((line, index) => (
+                                  <div key={`${section.title}-${index}`} className="flex items-start gap-2">
+                                    <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[#d4a017]" />
+                                    <p className="text-sm leading-relaxed text-[#d6d8df]">{toBulletText(line)}</p>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-sm leading-relaxed text-[#9ca3b2]">No additional details provided.</p>
+                              )}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+
+                    {analysisMetaLines.length > 0 ? (
+                      <div className="space-y-2">
+                        {analysisMetaLines.map((line) => {
+                          const isCaution = /^caution:/i.test(line);
+
+                          return (
+                            <div
+                              key={line}
+                              className={
+                                isCaution
+                                  ? "rounded-lg border border-[#FF8A4C]/25 bg-[#FF8A4C]/10 px-4 py-3"
+                                  : "rounded-lg border border-[#6b7280]/30 bg-[#11151e] px-4 py-3"
+                              }
+                            >
+                              <p className={isCaution ? "text-sm font-medium text-[#FFB089]" : "text-sm text-[#b9c0cd]"}>{line}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="text-sm leading-relaxed text-[#7a7f8e] min-h-60 flex items-center">
                     Your AI-generated analysis will appear here after submitting the form.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[#1e2128] bg-[#161922] overflow-hidden">
+              <div className="px-5 py-3 border-b border-[#232730] flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white">Stock Details</h3>
+                <span className="text-xs text-[#7a7f8e]">
+                  {result?.symbol || `${symbol.toUpperCase()} (pending)`}
+                </span>
+              </div>
+              <div className="p-5">
+                {snapshotRows.length > 0 ? (
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="watchlist-table">
+                      <table className="w-full text-sm">
+                        <colgroup>
+                          <col className="w-[40%]" />
+                          <col className="w-[60%]" />
+                        </colgroup>
+                        <thead>
+                          <tr className="table-header-row">
+                            <th className="table-header text-left px-4 py-3">Metric</th>
+                            <th className="table-header text-left px-4 py-3">Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {snapshotRowsLeft.map((row) => (
+                            <tr key={row.label} className="table-row">
+                              <td className="table-cell px-4 py-3 text-[#c7cad2]">{row.label}</td>
+                              <td className={`table-cell px-4 py-3 ${getValueColorClass(row.value)}`}>
+                                {row.value}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {snapshotRowsRight.length > 0 ? (
+                      <div className="watchlist-table">
+                        <table className="w-full text-sm">
+                          <colgroup>
+                            <col className="w-[40%]" />
+                            <col className="w-[60%]" />
+                          </colgroup>
+                          <thead>
+                            <tr className="table-header-row">
+                              <th className="table-header text-left px-4 py-3">Metric</th>
+                              <th className="table-header text-left px-4 py-3">Value</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {snapshotRowsRight.map((row) => (
+                              <tr key={row.label} className="table-row">
+                                <td className="table-cell px-4 py-3 text-[#c7cad2]">{row.label}</td>
+                                <td className={`table-cell px-4 py-3 ${getValueColorClass(row.value)}`}>
+                                  {row.value}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="text-sm leading-relaxed text-[#7a7f8e] min-h-30 flex items-center">
+                    Run analysis to load the latest stock snapshot.
                   </div>
                 )}
               </div>

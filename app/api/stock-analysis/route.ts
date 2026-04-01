@@ -57,44 +57,72 @@ const buildFallbackAnalysis = (
   riskProfile: string,
   reason?: string
 ) => {
-  const changeLine = stockDataText
-    .split("\n")
-    .find((line) => line.toLowerCase().startsWith("change:"));
+  const metricMap = Object.fromEntries(
+    stockDataText
+      .split("\n")
+      .map((line) => line.split(":"))
+      .filter((parts) => parts.length >= 2)
+      .map(([label, ...value]) => [
+        label.trim().toLowerCase(),
+        value.join(":").trim(),
+      ])
+  );
 
+  const changeLine = metricMap["change"];
   const pctMatch = changeLine?.match(/([+-]?\d+(?:\.\d+)?)%/);
   const changePercent = pctMatch ? Number(pctMatch[1]) : 0;
 
-  const trend = changePercent > 0 ? "Bullish bias" : changePercent < 0 ? "Bearish bias" : "Sideways";
-  const confidence = Math.abs(changePercent) > 2 ? "High" : Math.abs(changePercent) > 0.7 ? "Medium" : "Low";
+  const trend =
+    changePercent > 0 ? "Bullish bias" : changePercent < 0 ? "Bearish bias" : "Sideways";
+  const confidence =
+    Math.abs(changePercent) > 2 ? "High" : Math.abs(changePercent) > 0.7 ? "Medium" : "Low";
+  const pe = metricMap["p/e ratio"] || "—";
+  const roe = metricMap["roe"] || "—";
+  const debtToEquity = metricMap["debt to equity"] || "—";
+  const rsi = metricMap["rsi (14)"] || "—";
+  const volatility = metricMap["annualized volatility"] || "—";
+  const sector = metricMap["sector"] || "—";
+  const industry = metricMap["industry"] || "—";
 
   const riskNote =
     riskProfile === "conservative"
-      ? "Prefer staggered entry and tight downside control."
+      ? "Prefer staggered entries, tighter stops, and avoid high-beta names."
       : riskProfile === "aggressive"
-      ? "Higher volatility acceptable, but position sizing is critical."
-      : "Use balanced allocation with predefined stop-loss levels.";
+      ? "Higher volatility may be acceptable, but position sizing and exit rules are essential."
+      : "Use balanced allocation with predefined stop-loss and review milestones.";
 
   const horizonPlan =
     timeframe === "short"
-      ? "Track momentum and volume each session; avoid oversized intraday exposure."
+      ? "Focus on momentum, RSI regime shifts, and strict invalidation levels."
       : timeframe === "long"
-      ? "Focus on business quality and valuation discipline over price noise."
-      : "Blend trend follow-through with valuation checks before adding quantity.";
+      ? "Prioritize business quality, valuation discipline, and earnings consistency over price noise."
+      : "Blend technical trend confirmation with valuation and financial quality checks.";
 
   return [
-    "1) Snapshot",
-    `Market tone from latest move: ${trend} (${changePercent.toFixed(2)}%).`,
+    "1) Executive Summary",
+    `Current market tone is ${trend} (${changePercent.toFixed(2)}%). The stock sits in ${sector} / ${industry} with ${confidence.toLowerCase()} conviction based on available data.`,
     "",
-    "2) Technical View",
-    "Price action suggests monitoring support/resistance from recent swing levels before fresh entries.",
+    "2) Fundamental Analysis",
+    `Valuation signal: P/E ${pe}; profitability signal: ROE ${roe}; leverage check: Debt-to-Equity ${debtToEquity}.`,
+    "Use these metrics together before deciding position size.",
     "",
-    "3) Risk Notes",
+    "3) Technical Analysis",
+    `Momentum check: RSI(14) ${rsi}; volatility profile: ${volatility}.`,
+    "Track support and resistance behavior before fresh entries.",
+    "",
+    "4) Industry and Peer Context",
+    "Compare valuation and growth against direct sector peers before finalizing conviction.",
+    "",
+    "5) Risk Assessment",
     riskNote,
     "",
-    "4) Action Plan",
+    "6) Action Plan",
     horizonPlan,
     "",
-    `5) Confidence (Low/Medium/High)`,
+    "7) Monitoring Checklist",
+    "Review revenue/EPS trend, margin direction, debt trajectory, shareholding trend, and major company news each quarter.",
+    "",
+    "8) Confidence (Low/Medium/High)",
     confidence,
     "",
     "Caution: This is informational analysis, not guaranteed investment advice.",
@@ -157,9 +185,35 @@ export async function POST(request: Request) {
       const details = [
         `Symbol: ${fallbackData.symbol}`,
         `Company: ${fallbackData.company}`,
+        `Sector: ${fallbackData.sector}`,
+        `Industry: ${fallbackData.industry}`,
         `Current Price: ${fallbackData.priceFormatted}`,
         `Change: ${fallbackData.changeFormatted}`,
+        `52W Range: ${fallbackData.fiftyTwoWeekLow} - ${fallbackData.fiftyTwoWeekHigh}`,
+        `50D Avg: ${fallbackData.fiftyDayAverage}`,
+        `200D Avg: ${fallbackData.twoHundredDayAverage}`,
+        `RSI (14): ${fallbackData.technical?.rsi14 ?? "—"}`,
+        `SMA 20: ${fallbackData.technical?.sma20 ?? "—"}`,
+        `SMA 50: ${fallbackData.technical?.sma50 ?? "—"}`,
+        `Annualized Volatility: ${fallbackData.technical?.annualizedVolatility ?? "—"}`,
         `P/E Ratio: ${fallbackData.peRatio}`,
+        `P/B Ratio: ${fallbackData.pbRatio}`,
+        `ROE: ${fallbackData.roe}`,
+        `Debt to Equity: ${fallbackData.debtToEquity}`,
+        `Net Margin: ${fallbackData.netMargin}`,
+        `Operating Margin: ${fallbackData.operatingMargin}`,
+        `Revenue Growth: ${fallbackData.revenueGrowth}`,
+        `Earnings Growth: ${fallbackData.earningsGrowth}`,
+        `EPS (TTM): ${fallbackData.epsTrailing}`,
+        `EPS (Forward): ${fallbackData.epsForward}`,
+        `Current Ratio: ${fallbackData.currentRatio}`,
+        `Quick Ratio: ${fallbackData.quickRatio}`,
+        `Dividend Yield: ${fallbackData.dividendYield}`,
+        `Beta: ${fallbackData.beta}`,
+        `Free Cash Flow: ${fallbackData.freeCashflow}`,
+        `Operating Cash Flow: ${fallbackData.operatingCashflow}`,
+        `Analyst Target Price: ${fallbackData.targetMeanPrice}`,
+        `Analyst Recommendation: ${fallbackData.recommendationKey}`,
         `Market Cap: ${fallbackData.marketCapFormatted}`,
       ].join("\n");
 
@@ -181,15 +235,24 @@ export async function POST(request: Request) {
       const prompt = [
         "You are an Indian stock market analysis assistant.",
         "Use only the provided stock snapshot.",
+        "Do not fabricate missing values; explicitly call out unavailable data.",
         `Investor risk profile: ${state.riskProfile}`,
         `Time horizon: ${state.timeframe}`,
-        "Create concise output in markdown with exactly these sections:",
-        "1) Snapshot",
-        "2) Technical View",
-        "3) Risk Notes",
-        "4) Action Plan",
-        "5) Confidence (Low/Medium/High)",
-        "Do not guarantee returns and include one caution line.",
+        "Create practical output in markdown with exactly these numbered sections:",
+        "1) Executive Summary",
+        "2) Fundamental Analysis",
+        "3) Technical Analysis",
+        "4) Industry and Peer Context",
+        "5) Risk Assessment",
+        "6) Action Plan",
+        "7) Monitoring Checklist",
+        "8) Confidence (Low/Medium/High)",
+        "Fundamental Analysis must include valuation, profitability, growth, leverage, and cash flow quality observations from the provided data.",
+        "Technical Analysis must include trend/momentum context using RSI/SMA and volatility from provided data.",
+        "Risk Assessment must mention business, valuation, and macro/policy risks.",
+        "Action Plan must be specific to the selected timeframe and risk profile.",
+        "Keep each section concise but useful, ideally 2 to 5 bullets.",
+        "Do not guarantee returns and include exactly one caution line at the end.",
         "",
         "Stock snapshot:",
         state.stockDataText,

@@ -30,6 +30,57 @@ export interface NewsItem {
 // ─── Formatters ─────────────────────────────────────────────────────────────
 const formatPrice = (number: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(number);
 const formatMarketCap = (number: number) => !number ? "—" : new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", notation: "compact", maximumFractionDigits: 2 }).format(number);
+const formatPercent = (value?: number | null) =>
+  typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : "—";
+
+const formatNumber = (value?: number | null, digits = 2) =>
+  typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
+
+const calculateSMA = (values: number[], period: number) => {
+  if (values.length < period) return null;
+  const window = values.slice(-period);
+  const total = window.reduce((sum, value) => sum + value, 0);
+  return total / period;
+};
+
+const calculateRSI = (values: number[], period = 14) => {
+  if (values.length <= period) return null;
+
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = values.length - period; i < values.length; i++) {
+    const prev = values[i - 1];
+    const curr = values[i];
+    const change = curr - prev;
+
+    if (change > 0) gains += change;
+    if (change < 0) losses += Math.abs(change);
+  }
+
+  if (losses === 0) return 100;
+  const relativeStrength = gains / losses;
+  return 100 - 100 / (1 + relativeStrength);
+};
+
+const calculateVolatility = (values: number[]) => {
+  if (values.length < 21) return null;
+
+  const returns: number[] = [];
+  for (let i = 1; i < values.length; i++) {
+    const prev = values[i - 1];
+    if (!prev) continue;
+    returns.push((values[i] - prev) / prev);
+  }
+
+  if (returns.length === 0) return null;
+
+  const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+  const variance =
+    returns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / returns.length;
+
+  return Math.sqrt(variance) * Math.sqrt(252) * 100;
+};
 
 // ─── 1. Search Stocks ───────────────────────────────────────────────────────
 export const searchStocks = cache(async (query?: string) => {
@@ -121,11 +172,38 @@ export const getStocksDetails = cache(async (symbol: string) => {
   const cleanSymbol = symbol.trim().toUpperCase();
   try {
     const quote: any = await yahooFinance.quote(cleanSymbol);
-    const summary: any = await yahooFinance.quoteSummary(cleanSymbol, { modules: ["summaryDetail", "defaultKeyStatistics"] });
+    const [summary, historical] = await Promise.all([
+      yahooFinance.quoteSummary(cleanSymbol, {
+        modules: [
+          "summaryDetail",
+          "defaultKeyStatistics",
+          "financialData",
+          "summaryProfile",
+        ],
+      }),
+      yahooFinance.historical(cleanSymbol, {
+        period1: new Date(Date.now() - 1000 * 60 * 60 * 24 * 180),
+        period2: new Date(),
+        interval: "1d",
+      }),
+    ]);
 
     if (!quote || !quote.regularMarketPrice) return null;
 
     const companyName = quote.longname || quote.shortname || cleanSymbol;
+    const closes = (Array.isArray(historical) ? historical : [])
+      .map((item: any) => item?.close)
+      .filter((value: unknown): value is number => typeof value === "number" && Number.isFinite(value));
+
+    const sma20 = calculateSMA(closes, 20);
+    const sma50 = calculateSMA(closes, 50);
+    const rsi14 = calculateRSI(closes, 14);
+    const annualizedVolatility = calculateVolatility(closes);
+
+    const summaryDetail = summary?.summaryDetail ?? {};
+    const keyStats = summary?.defaultKeyStatistics ?? {};
+    const financialData = summary?.financialData ?? {};
+    const profile = summary?.summaryProfile ?? {};
 
     return {
       symbol: cleanSymbol,
@@ -134,8 +212,38 @@ export const getStocksDetails = cache(async (symbol: string) => {
       changePercent: quote.regularMarketChangePercent || 0,
       priceFormatted: formatPrice(quote.regularMarketPrice),
       changeFormatted: `${(quote.regularMarketChangePercent || 0) > 0 ? "+" : ""}${(quote.regularMarketChangePercent || 0).toFixed(2)}%`,
-      peRatio: summary.summaryDetail?.trailingPE?.toFixed(2) || "—",
+      peRatio: formatNumber(summaryDetail?.trailingPE),
       marketCapFormatted: formatMarketCap(quote.marketCap || 0),
+      sector: profile?.sector || "—",
+      industry: profile?.industry || "—",
+      dividendYield: formatPercent(summaryDetail?.dividendYield),
+      beta: formatNumber(summaryDetail?.beta ?? keyStats?.beta),
+      pbRatio: formatNumber(summaryDetail?.priceToBook),
+      roe: formatPercent(financialData?.returnOnEquity),
+      debtToEquity: formatNumber(financialData?.debtToEquity),
+      netMargin: formatPercent(financialData?.profitMargins),
+      operatingMargin: formatPercent(financialData?.operatingMargins),
+      revenueGrowth: formatPercent(financialData?.revenueGrowth),
+      earningsGrowth: formatPercent(financialData?.earningsGrowth),
+      epsTrailing: formatNumber(keyStats?.trailingEps),
+      epsForward: formatNumber(keyStats?.forwardEps),
+      fiftyTwoWeekHigh: formatPrice(summaryDetail?.fiftyTwoWeekHigh || quote.fiftyTwoWeekHigh || 0),
+      fiftyTwoWeekLow: formatPrice(summaryDetail?.fiftyTwoWeekLow || quote.fiftyTwoWeekLow || 0),
+      fiftyDayAverage: formatPrice(summaryDetail?.fiftyDayAverage || quote.fiftyDayAverage || 0),
+      twoHundredDayAverage: formatPrice(summaryDetail?.twoHundredDayAverage || quote.twoHundredDayAverage || 0),
+      currentRatio: formatNumber(financialData?.currentRatio),
+      quickRatio: formatNumber(financialData?.quickRatio),
+      freeCashflow: formatMarketCap(financialData?.freeCashflow || 0),
+      operatingCashflow: formatMarketCap(financialData?.operatingCashflow || 0),
+      targetMeanPrice: formatPrice(financialData?.targetMeanPrice || 0),
+      recommendationKey: financialData?.recommendationKey || "—",
+      technical: {
+        sma20: sma20 ? formatPrice(sma20) : "—",
+        sma50: sma50 ? formatPrice(sma50) : "—",
+        rsi14: rsi14 !== null ? rsi14.toFixed(2) : "—",
+        annualizedVolatility:
+          annualizedVolatility !== null ? `${annualizedVolatility.toFixed(2)}%` : "—",
+      },
     };
   } catch (error) { return null; }
 });
