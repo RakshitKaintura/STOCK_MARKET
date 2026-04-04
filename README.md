@@ -2,15 +2,32 @@
 
 A compact, opinionated Next.js dashboard for stock tracking, news aggregation, and on-demand analysis — built with TypeScript, Tailwind CSS, MongoDB, and an agentic AI analysis pipeline powered by LangGraph + Gemini. 🚀
 
-[![Build Status](https://img.shields.io/badge/build-pending-lightgrey)](https://example.com) [![Deploy](https://img.shields.io/badge/deploy-ready-blue)](https://example.com)
+[![Build Status](https://img.shields.io/badge/build-pending-lightgrey)](https://example.com) [![Deploy](https://img.shields.io/badge/deploy-ready-blue)](https://example.com) [![Live Demo](https://img.shields.io/badge/demo-online-brightgreen)](https://stock-market-sandy.vercel.app)
 
 ---
 
 ## Visuals
 
-![Project Demo](./public/assets/images/demo-screenshot.png)
+<!-- Screenshot gallery: place images under public/assets/readme_images/ -->
+<p align="center">
+	<img src="public/assets/readme_images/dashboard.png" alt="Dashboard" width="48%" />
+	<img src="public/assets/readme_images/Watchlist.png" alt="Watchlist" width="48%" />
+</p>
 
-> Replace the image above with a production screenshot or a link to a hosted demo/GIF.
+<p align="center">
+	<img src="public/assets/readme_images/Stock_Screener.png" alt="Stock Screener" width="32%" />
+	<img src="public/assets/readme_images/Stock_page.png" alt="Stock Page" width="32%" />
+	<img src="public/assets/readme_images/Stock_Analysis.png" alt="Stock Analysis" width="32%" />
+</p>
+
+<p align="center">
+	<img src="public/assets/readme_images/Login_Page.png" alt="Login Page" width="48%" />
+</p>
+
+
+> Add the PNG files to `public/assets/readme_images/` so screenshots render in the README.
+
+Live demo: https://stock-market-sandy.vercel.app
 
 ---
 
