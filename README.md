@@ -1,36 +1,182 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI-Powered Stock Market Analysis Platform
+
+A compact, opinionated Next.js dashboard for stock tracking, news aggregation, and on-demand analysis — built with TypeScript, Tailwind CSS, MongoDB, and an agentic AI analysis pipeline powered by LangGraph + Gemini. 🚀
+
+[![Build Status](https://img.shields.io/badge/build-pending-lightgrey)](https://example.com) [![Deploy](https://img.shields.io/badge/deploy-ready-blue)](https://example.com)
+
+---
+
+## Visuals
+
+![Project Demo](./public/assets/images/demo-screenshot.png)
+
+> Replace the image above with a production screenshot or a link to a hosted demo/GIF.
+
+---
+
+## The Why
+
+Investors and traders need a lightweight, fast interface to monitor prices, collect news, and keep personal watchlists without the overhead of heavy trading platforms. Stock Markett provides:
+
+- A single-pane dashboard for quick stock lookups and visualizations
+- Persistent user watchlists and signup flows
+- Automated background tasks for digest emails and lightweight analytics
+
+This project is ideal as a portfolio piece because it demonstrates full-stack capabilities: authentication, persistent storage, third-party data integration, background processing, and a modern React UI.
+
+---
+
+## Key Features
+
+- **Next.js App Router + TypeScript** — modern SSR/SSG and clean type-safety across the stack.
+- **Persistent Watchlist (MongoDB + Mongoose)** — users can save & manage watchlists stored in MongoDB.
+- **Auth with Better Auth** — email/password auth with `better-auth` and cookie-based session handling.
+- **Trading UIs** — embedded TradingView widgets and TickerTape components for interactive charts.
+- **AI Stock Analysis (LangGraph + Gemini)** — agentic analysis pipeline using `@langchain/langgraph` and `@langchain/google-genai` to orchestrate data-fetch → LLM analysis nodes.
+- **Background Jobs (Inngest)** — async workflows for welcome emails and daily news summaries.
+- **Email Notifications (Nodemailer)** — transactional emails for signup & digests.
+
+---
+
+## AI Stock Analysis (LangGraph Agentic Workflow)
+
+This project implements an agentic, state-graph workflow for per-symbol AI-driven analysis located at [app/api/stock-analysis/route.ts](app/api/stock-analysis/route.ts). Key points:
+
+- Orchestration: `StateGraph` composes nodes (`fetch_stock` → `analyze`) to create an explainable, stepwise analysis flow.
+- LLM: `ChatGoogleGenerativeAI` (Gemini) is invoked when `GEMINI_API_KEY` is available; otherwise the route falls back to a deterministic analysis generator.
+- Inputs: symbol, timeframe (short|medium|long), and riskProfile (conservative|balanced|aggressive).
+- Output: structured markdown analysis with sections (Executive Summary, Fundamental Analysis, Technical Analysis, Industry Context, Risk, Action Plan, Monitoring Checklist, Confidence).
+- Safety: the pipeline never fabricates missing values — it explicitly calls out unavailable data and includes a caution that the output is informational, not investment advice.
+
+Example request (curl):
+
+```bash
+curl -X POST http://localhost:3000/api/stock-analysis \
+	-H "Content-Type: application/json" \
+	-d '{"symbol":"TCS", "timeframe":"medium", "riskProfile":"balanced"}'
+```
+
+Response (trimmed): JSON containing `symbol`, `timeframe`, `riskProfile`, `stockData` (snapshot) and `analysis` (markdown string).
+
+---
+
+---
+
+## Tech Stack
+
+Frontend
+
+- Next.js (App Router)
+- React 19 + TypeScript
+- Tailwind CSS
+
+Backend
+
+- Node.js (Next.js API routes)
+- Inngest (background functions)
+- `better-auth` for authentication
+
+Database / Tools
+
+- MongoDB (mongoose)
+- Nodemailer (SMTP)
+- Yahoo Finance / Gemini AI (integration points)
+- ESLint, TypeScript, Turbopack
+
+---
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+ (or latest LTS)
+- npm (or yarn/pnpm)
+- A running MongoDB instance (Atlas or local)
+- SMTP credentials (for sending email)
+
+### Installation
+
+```bash
+git clone <your-repo-url>
+cd stock_market
+npm install
+# or: pnpm install
+```
+
+### Environment
+
+Create a `.env` from the template and fill in values:
+
+```env
+# MongoDB connection string
+MONGODB_URI=mongodb+srv://<user>:<pass>@cluster.example.mongodb.net/stock_market
+
+# Better Auth configuration
+BETTER_AUTH_SECRET=replace_me_with_a_strong_random_secret
+BETTER_AUTH_URL=http://localhost:3000
+
+# Gemini / AI key used by Inngest AI integrations
+GEMINI_API_KEY=replace_with_gemini_api_key
+
+# Nodemailer SMTP
+NODEMAILER_EMAIL=you@example.com
+NODEMAILER_PASSWORD=supersecretpassword
+
+# Optional: NODE_ENV (development|production)
+NODE_ENV=development
+```
+
+Save the file as `.env` at project root.
+
+### Run (dev)
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Visit http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Build & Start (production)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build
+npm start
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## Architecture / Project Structure
 
-To learn more about Next.js, take a look at the following resources:
+Top-level layout (trimmed):
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `app/` — Next.js App Router pages and layouts
+- `components/` — UI components and widgets (TradingView, TickerTape, Watchlist UI)
+- `lib/` — client libraries, API wrappers, actions, Inngest functions, and nodemailer templates
+- `database/` — MongoDB connection (`mongoose.ts`) and models (`models/*.ts`)
+- `hooks/` — React hooks (`useDebounce`, TradingView hook)
+- `api/` — server API routes used by client pages (`/api/news`, `/api/stock-analysis`, `/api/inngest`)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Example important files:
 
-## Deploy on Vercel
+- [database/mongoose.ts](database/mongoose.ts) — MongoDB connection helper
+- [lib/better-auth/auth.ts](lib/better-auth/auth.ts) — authentication setup
+- [lib/inngest/client.ts](lib/inngest/client.ts) — background job client
+- [components/WatchlistTable.tsx](components/WatchlistTable.tsx) — watchlist UI
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Future Roadmap
+
+1. Add OAuth providers (Google/GitHub) via `better-auth` for faster onboarding.
+2. Real-time WebSocket feed for live quotes and push notifications.
+3. Advanced analytics: portfolio P&L, historical charts, and export CSVs.
+4. CI/CD + Vercel deployment template with preview environments and test coverage reporting.
+
+---
+
+## Contact / Support
+
+- GitHub: https://github.com/your-username/stock_market
+- LinkedIn: https://www.linkedin.com/in/your-name
+- Email: your.email@example.com
+
+If you'd like help deploying, adding CI, or polishing any feature for your portfolio, open an issue or drop a message — happy to collaborate! ✨
