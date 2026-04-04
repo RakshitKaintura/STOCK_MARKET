@@ -8,22 +8,43 @@ A compact, opinionated Next.js dashboard for stock tracking, news aggregation, a
 
 ## Visuals
 
-<!-- Screenshot gallery: place images under public/assets/readme_images/ -->
-<p align="center">
-	<img src="public/assets/readme_images/dashboard.png" alt="Dashboard" width="48%" />
-	<img src="public/assets/readme_images/Watchlist.png" alt="Watchlist" width="48%" />
-</p>
+Below are curated screenshots that showcase the main flows and UI of the app. Each image is presented individually with a short caption to make the README cleaner and easier to scan.
 
-<p align="center">
-	<img src="public/assets/readme_images/Stock_Screener.png" alt="Stock Screener" width="32%" />
-	<img src="public/assets/readme_images/Stock_page.png" alt="Stock Page" width="32%" />
-	<img src="public/assets/readme_images/Stock_Analysis.png" alt="Stock Analysis" width="32%" />
-</p>
+### Dashboard
+![Dashboard](public/assets/readme_images/dashboard.png)
+A high-level market overview with TickerTape and heatmap, designed for quick monitoring.
 
-<p align="center">
-	<img src="public/assets/readme_images/Login_Page.png" alt="Login Page" width="48%" />
-</p>
+---
 
+### Watchlist
+![Watchlist](public/assets/readme_images/Watchlist.png)
+Personal watchlist with real-time prices, quick actions, and latest related news.
+
+---
+
+### Stock Screener
+![Stock Screener](public/assets/readme_images/Stock_Screener.png)
+Filter and discover stocks using multiple criteria and exportable results.
+
+---
+
+### Stock Page
+![Stock Page](public/assets/readme_images/Stock_page.png)
+Detailed single-stock view with charts, fundamentals, and technical indicators.
+
+---
+
+### Stock Analysis
+![Stock Analysis](public/assets/readme_images/Stock_Analysis.png)
+Agentic AI analysis output (LangGraph + Gemini) shown as structured markdown insights.
+
+---
+
+### Login Page
+![Login Page](public/assets/readme_images/Login_Page.png)
+Clean authentication UI with email/password signup and contextual onboarding.
+
+---
 
 > Add the PNG files to `public/assets/readme_images/` so screenshots render in the README.
 
